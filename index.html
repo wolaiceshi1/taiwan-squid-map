@@ -1,0 +1,1782 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>北台灣沿岸海象 & 軟絲花枝即時行動預測圖台</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html {
+      width: 100%; height: 100%; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
+      background: #09101a; color: #e2e8f0;
+    }
+    #map { width: 100%; height: 100%; background: #09101a; }
+    #overlay-canvas {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none; z-index: 450;
+    }
+
+    .glass {
+      background: rgba(15, 23, 42, 0.87);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    /* 頂部控制列 */
+    .top-bar {
+      position: absolute; top: 12px; left: 12px; right: 224px; z-index: 1000;
+      display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+      padding: 8px 12px;
+    }
+    .brand { font-weight: 700; font-size: 14px; color: #38bdf8; white-space: nowrap; }
+    .spot-select, .basemap-select {
+      background: #1e293b; color: #f8fafc;
+      border: 1px solid #38bdf8; border-radius: 8px;
+      padding: 5px 8px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    }
+    .basemap-select { border-color: #94a3b8; }
+    .ctrl-btn {
+      background: rgba(30, 41, 59, 0.92); color: #e2e8f0;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      padding: 5px 9px; border-radius: 8px; cursor: pointer; font-size: 12px;
+      white-space: nowrap;
+    }
+    .ctrl-btn:hover { background: #334155; border-color: #7dd3fc; }
+    .ctrl-btn.active-toggle {
+      background: rgba(16, 185, 129, 0.25);
+      border-color: #10b981; color: #6ee7b7;
+    }
+    .ctrl-btn.active-blue {
+      background: rgba(56, 189, 248, 0.25);
+      border-color: #38bdf8; color: #bae6fd;
+    }
+    .status-badge {
+      font-size: 11px; padding: 3px 9px; border-radius: 999px;
+      background: rgba(16, 185, 129, 0.2); color: #6ee7b7;
+      white-space: nowrap;
+    }
+    .status-badge.loading {
+      background: rgba(245, 158, 11, 0.25); color: #fcd34d;
+    }
+
+    /* 右側圖層切換 */
+    .layer-menu {
+      position: absolute; top: 12px; right: 12px; z-index: 1000;
+      display: flex; flex-direction: column; gap: 6px; padding: 10px;
+      width: 204px;
+    }
+    .layer-title {
+      font-size: 11px; color: #94a3b8; padding-left: 4px; font-weight: 600;
+    }
+    .layer-btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-radius: 8px; border: 1px solid transparent;
+      background: rgba(30, 41, 59, 0.72); color: #cbd5e1;
+      cursor: pointer; font-size: 13px; font-weight: 500; text-align: left;
+      transition: all 0.15s ease;
+    }
+    .layer-btn:hover { background: rgba(51, 65, 85, 0.9); color: #fff; }
+    .layer-btn.active {
+      background: rgba(14, 165, 233, 0.3);
+      border-color: #38bdf8; color: #fff;
+    }
+
+    /* 右下圖例 */
+    .legend-box {
+      position: absolute; right: 12px; bottom: 105px; z-index: 1000;
+      padding: 10px 12px; width: 252px; font-size: 12px;
+    }
+    .legend-bar { height: 10px; border-radius: 5px; margin: 6px 0 4px; }
+    .legend-labels {
+      display: flex; justify-content: space-between; font-size: 10px; color: #cbd5e1;
+    }
+    .hab-legend {
+      margin-top: 8px; padding-top: 7px;
+      border-top: 1px solid rgba(148, 163, 184, 0.22);
+      font-size: 11px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .hab-dot {
+      display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+      margin-right: 6px; vertical-align: middle;
+    }
+
+    /* 單點詳細面板 */
+    .inspector {
+      position: absolute; left: 12px; bottom: 105px; z-index: 1000;
+      width: 425px; max-width: calc(100vw - 24px);
+      max-height: 68vh; overflow-y: auto;
+      padding: 13px; display: none;
+    }
+    .inspector.show { display: block; }
+    .insp-header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      padding-bottom: 8px; margin-bottom: 10px;
+    }
+    .insp-actions { display: flex; align-items: center; gap: 6px; }
+    .zoom-reef-btn {
+      background: rgba(56, 189, 248, 0.22); color: #bae6fd;
+      border: 1px solid #38bdf8; border-radius: 6px;
+      padding: 3px 7px; font-size: 11px; cursor: pointer; font-weight: 600;
+    }
+    .zoom-reef-btn:hover { background: rgba(56, 189, 248, 0.4); color: #fff; }
+    .insp-close {
+      background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;
+    }
+    .insp-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;
+    }
+    .metric-card {
+      background: rgba(30, 41, 59, 0.74); border-radius: 8px; padding: 8px 10px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+    }
+    .metric-label { font-size: 11px; color: #94a3b8; }
+    .metric-val { font-size: 13.5px; font-weight: 700; color: #f8fafc; margin-top: 2px; }
+    .metric-sub { font-size: 11px; color: #7dd3fc; margin-top: 2px; }
+
+    .bft-pill {
+      display: inline-block; padding: 1px 6px; border-radius: 5px;
+      font-size: 12px; font-weight: 700; color: #0f172a; margin-right: 4px;
+    }
+
+    /* 軟絲 & 花枝即時海況行為推演卡 */
+    .habitat-card {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(14, 165, 233, 0.12));
+      border: 1px solid rgba(52, 211, 153, 0.4);
+      border-radius: 10px; padding: 10px 11px; margin-bottom: 10px;
+      font-size: 12px; line-height: 1.52;
+    }
+    .hab-title {
+      font-weight: 700; color: #6ee7b7; margin-bottom: 6px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .score-pill {
+      font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 700;
+    }
+    .score-high { background: rgba(16, 185, 129, 0.25); color: #6ee7b7; border: 1px solid #10b981; }
+    .score-mid  { background: rgba(245, 158, 11, 0.25); color: #fde047; border: 1px solid #f59e0b; }
+    .score-low  { background: rgba(239, 68, 68, 0.25); color: #fca5a5; border: 1px solid #ef4444; }
+    .hab-row { margin-bottom: 6px; color: #e2e8f0; }
+    .sea-trigger-bar {
+      background: rgba(15, 23, 42, 0.65); border-radius: 7px;
+      padding: 5px 8px; margin-bottom: 7px; font-size: 11px; color: #bae6fd;
+      border-left: 3px solid #38bdf8;
+    }
+    .best-win-btn {
+      display: inline-block; margin-top: 4px; padding: 3px 8px;
+      background: rgba(16, 185, 129, 0.22); color: #6ee7b7;
+      border: 1px solid #10b981; border-radius: 6px;
+      font-size: 11px; font-weight: 600; cursor: pointer;
+    }
+    .best-win-btn:hover { background: rgba(16, 185, 129, 0.4); color: #fff; }
+    .hab-zones-list {
+      margin-top: 7px; padding-top: 7px;
+      border-top: 1px dashed rgba(148, 163, 184, 0.25);
+      font-size: 11px; color: #cbd5e1;
+    }
+    .hab-zone-tag {
+      display: inline-block; margin: 2px 4px 2px 0; padding: 3px 7px;
+      border-radius: 5px; cursor: pointer; font-weight: 600;
+    }
+    .tag-squid { background: rgba(16,185,129,0.2); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.5); }
+    .tag-cuttle { background: rgba(245,158,11,0.2); color: #fcd34d; border: 1px solid rgba(245,158,11,0.5); }
+    .tag-warn { background: rgba(239,68,68,0.16); color: #fca5a5; border: 1px solid rgba(239,68,68,0.45); }
+
+    .forecast-table-wrap {
+      overflow-x: auto; border-top: 1px solid rgba(148, 163, 184, 0.2); padding-top: 8px;
+    }
+    .forecast-table {
+      width: 100%; border-collapse: collapse; font-size: 11px; white-space: nowrap;
+    }
+    .forecast-table th, .forecast-table td {
+      padding: 5px 5px; text-align: center; border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    }
+    .forecast-table th { color: #94a3b8; font-weight: 500; }
+    .forecast-table tr.active-row { background: rgba(56, 189, 248, 0.24); }
+    .forecast-table tr { cursor: pointer; }
+
+    /* 底部 3 天時間軸 */
+    .timeline-bar {
+      position: absolute; bottom: 12px; left: 12px; right: 12px; z-index: 1000;
+      padding: 10px 16px; display: flex; align-items: center; gap: 14px;
+    }
+    .play-btn {
+      width: 38px; height: 38px; border-radius: 50%; border: none;
+      background: #0ea5e9; color: #fff; font-size: 15px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .play-btn:hover { background: #38bdf8; }
+    .slider-wrap { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+    .time-info {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 13px; font-weight: 600; color: #f1f5f9;
+    }
+    .day-ticks {
+      display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8;
+    }
+    input[type="range"] { width: 100%; accent-color: #38bdf8; cursor: pointer; }
+
+    /* 單位與 BFT 對照彈窗 */
+    .unit-modal {
+      position: absolute; top: 64px; left: 12px; z-index: 1200;
+      width: 365px; max-width: calc(100vw - 24px);
+      padding: 14px; display: none; font-size: 12px;
+    }
+    .unit-modal.show { display: block; }
+    .unit-modal table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 11px; }
+    .unit-modal th, .unit-modal td {
+      padding: 4px 6px; border-bottom: 1px solid rgba(148,163,184,0.15); text-align: left;
+    }
+
+    /* 沿岸站點標記與躲藏區標籤 */
+    .coastal-pin {
+      background: rgba(15, 23, 42, 0.88); color: #e0f2fe;
+      border: 1px solid #38bdf8; border-radius: 6px;
+      padding: 2px 6px; font-size: 11px; font-weight: 600;
+      white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.65);
+    }
+    .coastal-pin.selected {
+      background: #0284c7; color: #fff; border-color: #fde047;
+    }
+    .hab-map-label {
+      background: rgba(15, 23, 42, 0.9);
+      border-radius: 5px; padding: 2px 6px;
+      font-size: 10.5px; font-weight: 700;
+      white-space: nowrap; pointer-events: none;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.7);
+    }
+    .leaflet-popup-content-wrapper {
+      background: rgba(15, 23, 42, 0.96); color: #f1f5f9;
+      border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 10px;
+    }
+    .leaflet-popup-tip { background: rgba(15, 23, 42, 0.96); }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <canvas id="overlay-canvas"></canvas>
+
+  <!-- 頂部控制與北台灣選點 -->
+  <div class="top-bar glass">
+    <span class="brand">🛰️ 北台灣衛星海象 · 軟絲花枝行為預測</span>
+    <select id="spot-select" class="spot-select" title="選擇北台灣沿岸地點立即更新">
+      <option value="0">📍 桃園竹圍 / 永安外海</option>
+      <option value="1">📍 淡水河口 / 台北港</option>
+      <option value="2">📍 白沙灣 / 麟山鼻</option>
+      <option value="3">📍 富貴角 / 老梅海域</option>
+      <option value="4">📍 金山 / 跳石海域</option>
+      <option value="5">📍 野柳 / 萬里海域</option>
+      <option value="6" selected>📍 基隆嶼 / 和平島八斗子</option>
+      <option value="7">📍 深澳 / 潮境海灣</option>
+      <option value="8">📍 鼻頭角 / 龍洞海域</option>
+      <option value="9">📍 福隆 / 三貂角海域</option>
+      <option value="10">📍 烏石港 / 龜山島海域</option>
+    </select>
+
+    <select id="basemap-select" class="basemap-select" title="切換地圖底圖精細度">
+      <option value="google_hybrid" selected>🛰️ Google 衛星＋路名</option>
+      <option value="google_sat">🌍 Google 純衛星實景</option>
+      <option value="esri_sat">🛰️ Esri 備援衛星</option>
+      <option value="dark">🌑 暗色海象模式</option>
+    </select>
+
+    <button id="seethrough-toggle" class="ctrl-btn active-blue" title="衛星透視：只留粒子與框線，不遮蔽水下暗礁紋理">
+      👁️ 衛星透視：純粒子
+    </button>
+    <button id="habitat-toggle" class="ctrl-btn active-toggle" title="顯示或隱藏軟絲/花枝躲藏區域">
+      🦑 躲藏預測：開
+    </button>
+    <button id="unit-toggle" class="ctrl-btn" title="切換副顯示與流/浪速單位">
+      副單位：節 (kt)
+    </button>
+    <button id="unit-help-btn" class="ctrl-btn">📏 單位 / BFT</button>
+    <button id="refresh-btn" class="ctrl-btn">↻ 更新</button>
+    <span id="status" class="status-badge">準備連線...</span>
+  </div>
+
+  <!-- 單位與 BFT 對照說明 -->
+  <div id="unit-modal" class="unit-modal glass">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <strong style="color:#38bdf8;">📏 本站指標單位 & BFT 風級對照</strong>
+      <button id="unit-modal-close" class="insp-close">✕</button>
+    </div>
+    <div style="margin-top:6px; color:#cbd5e1; line-height:1.5;">
+      • <b>風向 / 風速</b>：方位角 + <b>BFT 蒲福風級 (0～12級)</b>（副單位 kt / m/s / km/h）<br/>
+      • <b>流向 / 流速</b>：流去方位 + <b>節 (kt)</b> 或 <b>m/s</b><br/>
+      • <b>浪向 / 浪速</b>：浪來方位 + 浪高(<b>m</b>) + 週期(<b>s</b>) + 推算浪速(<b>kt / m/s</b>)<br/>
+      • <b>深度</b>：<b>公尺 (m)</b>（GEBCO 海底地形）<br/>
+      • <b>降雨機率 / 範圍</b>：機率(<b>%</b>) + 雨量強度(<b>mm/h</b>)
+    </div>
+    <table>
+      <thead><tr><th>BFT</th><th>風力名稱</th><th>m/s</th><th>節 (kt)</th></tr></thead>
+      <tbody>
+        <tr><td>0–2級</td><td>無風～輕風</td><td>0 – 3.3</td><td>0 – 6</td></tr>
+        <tr><td>3級</td><td>微風</td><td>3.4 – 5.4</td><td>7 – 10</td></tr>
+        <tr><td>4級</td><td>和風</td><td>5.5 – 7.9</td><td>11 – 16</td></tr>
+        <tr><td>5級</td><td>清風 (注意)</td><td>8.0 – 10.7</td><td>17 – 21</td></tr>
+        <tr><td>6級</td><td>強風 (警戒)</td><td>10.8 – 13.8</td><td>22 – 27</td></tr>
+        <tr><td>7級</td><td>疾風 (危險)</td><td>13.9 – 17.1</td><td>28 – 33</td></tr>
+        <tr><td>8級+</td><td>大風～狂風</td><td>≥ 17.2</td><td>≥ 34</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 右側圖層切換 -->
+  <div class="layer-menu glass">
+    <div class="layer-title">海象氣象圖層</div>
+    <button class="layer-btn active" data-layer="wind">💨 風向 / 風速 (BFT)</button>
+    <button class="layer-btn" data-layer="current">🌀 流向 / 流速</button>
+    <button class="layer-btn" data-layer="wave">🌊 浪向 / 浪速</button>
+    <button class="layer-btn" data-layer="rain">🌧️ 降雨機率 / 範圍</button>
+    <button class="layer-btn" data-layer="depth">⚓ 深度 (海底地形)</button>
+  </div>
+
+  <!-- 圖例 -->
+  <div id="legend-box" class="legend-box glass">
+    <div id="legend-title" style="font-weight:600;">風速 (BFT 蒲福風級)</div>
+    <div id="legend-bar" class="legend-bar"></div>
+    <div id="legend-labels" class="legend-labels"></div>
+    <div class="hab-legend">
+      <div><span class="hab-dot" style="background:#34d399;"></span><b>軟絲預測躲藏區</b>：依實況切換緩流/避浪灣</div>
+      <div><span class="hab-dot" style="background:#fbbf24;"></span><b>花枝預測躲藏區</b>：背浪深側砂礁交界貼底</div>
+      <div><span class="hab-dot" style="background:#f97316;"></span><b>來浪衝擊方向線</b>：橘紅虛線（標示迎浪壓力）</div>
+      <div><span class="hab-dot" style="background:#ef4444;"></span><b>野柳保育區</b>：竹叢礁復育完全禁漁</div>
+      <div id="zoom-readout" style="color:#94a3b8; margin-top:2px;">衛星縮放等級：Z13 (最大支援 Z20)</div>
+    </div>
+  </div>
+
+  <!-- 單點詳情與即時海況頭足行為預測 -->
+  <div id="inspector" class="inspector glass show">
+    <div class="insp-header">
+      <div>
+        <div style="font-weight:700; font-size:15px; color:#38bdf8;" id="insp-name">基隆嶼 / 和平島八斗子</div>
+        <div style="font-size:11px; color:#94a3b8;" id="insp-coord">載入中...</div>
+        <div style="font-size:11px; color:#cbd5e1;" id="insp-time">--</div>
+      </div>
+      <div class="insp-actions">
+        <button class="zoom-reef-btn" id="zoom-reef-btn" title="放大至 Z16 近距離看衛星礁盤與防波堤">🔍 放大看礁盤</button>
+        <button class="insp-close" id="insp-close">✕</button>
+      </div>
+    </div>
+
+    <div class="insp-grid">
+      <div class="metric-card">
+        <div class="metric-label">風向 / 風速 (BFT)</div>
+        <div class="metric-val" id="val-wind">--</div>
+        <div class="metric-sub" id="sub-wind">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">流向 / 流速</div>
+        <div class="metric-val" id="val-current">--</div>
+        <div class="metric-sub" id="sub-current">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">浪向 / 浪速</div>
+        <div class="metric-val" id="val-wave">--</div>
+        <div class="metric-sub" id="sub-wave">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">降雨機率 / 降雨範圍量</div>
+        <div class="metric-val" id="val-rain">--</div>
+        <div class="metric-sub" id="sub-rain">--</div>
+      </div>
+      <div class="metric-card" style="grid-column: span 2;">
+        <div class="metric-label">海底深度 / 周邊地形坡向 (GEBCO · 公尺 m)</div>
+        <div class="metric-val" id="val-depth">查詢中...</div>
+      </div>
+    </div>
+
+    <!-- 即時在地海況 → 軟絲 & 花枝行動與躲藏位置推演卡 -->
+    <div class="habitat-card" id="habitat-card">
+      <div class="hab-title">
+        <span>🧭 即時在地海況：軟絲 & 花枝行動推演</span>
+        <span id="hab-season-tag" style="font-size:11px; color:#94a3b8;">--</span>
+      </div>
+      <div class="sea-trigger-bar" id="sea-trigger-bar">海況綜合判定中...</div>
+      <div class="hab-row" id="hab-squid-info">🟢 軟絲行動：分析中...</div>
+      <div class="hab-row" id="hab-cuttle-info">🟠 花枝行動：分析中...</div>
+      <div class="hab-row" id="hab-tactic-hint" style="font-size:11px; color:#bae6fd;">--</div>
+      <div id="best-window-wrap"></div>
+      <div class="hab-zones-list" id="hab-zones-list"></div>
+    </div>
+
+    <div style="font-size:12px; font-weight:600; margin-bottom:4px; color:#38bdf8;">
+      未來 3 天（72小時）趨勢（點擊任一列連動地圖與躲藏區）
+    </div>
+    <div class="forecast-table-wrap">
+      <table class="forecast-table">
+        <thead>
+          <tr>
+            <th>時間</th>
+            <th>風(BFT)</th>
+            <th>流</th>
+            <th>浪高/浪速</th>
+            <th>雨率/量</th>
+            <th>軟/花</th>
+          </tr>
+        </thead>
+        <tbody id="forecast-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 底部 3 天（72小時）時間軸 -->
+  <div class="timeline-bar glass">
+    <button id="play-btn" class="play-btn" title="播放/暫停 3 天預報">▶</button>
+    <div class="slider-wrap">
+      <div class="time-info">
+        <span id="time-display">載入時間軸...</span>
+        <span id="offset-display" style="color:#38bdf8;">+0 小時</span>
+      </div>
+      <input type="range" id="time-slider" min="0" max="72" value="0" step="1" />
+      <div class="day-ticks">
+        <span>現在 (+0h)</span>
+        <span>+24h (1天後)</span>
+        <span>+48h (2天後)</span>
+        <span>+72h (3天後)</span>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // === 1. 北台灣沿岸 11 大海域與微棲地資料庫（新增 exposedFrom 迎浪方位角與 isShelter 庇護屬性） ===
+  const NORTH_SPOTS = [
+    {
+      name: "桃園竹圍 / 永安外海", lat: 25.1185, lon: 121.2385,
+      habitats: [
+        { type: "squid", name: "竹圍北堤消波塊外側緩流帶", lat: 25.1182, lon: 121.2395, r: 220, depth: "3–8m", exposedFrom: 315, isShelter: false, desc: "北堤突堤阻擋側流，中低浪時消波塊外緣易聚小魚；大浪時軟絲會退進港嘴內側。" },
+        { type: "cuttle", name: "竹圍南堤內灣砂礁過渡帶", lat: 25.1128, lon: 121.2342, r: 260, depth: "6–14m", exposedFrom: 290, isShelter: true, desc: "沙岸接消波塊礫石交界，花枝常貼底埋沙伺機捕食蝦蟹。" }
+      ]
+    },
+    {
+      name: "淡水河口 / 台北港", lat: 25.1665, lon: 121.3790,
+      habitats: [
+        { type: "squid", name: "台北港北外堤轉折迴流區", lat: 25.1642, lon: 121.3768, r: 300, depth: "5–12m", exposedFrom: 330, isShelter: false, desc: "長防波堤轉折處形成明顯緩流與潮目，漲潮水清時軟絲易靠堤覓食。" },
+        { type: "cuttle", name: "沙崙外海砂礁混合底", lat: 25.1842, lon: 121.4018, r: 300, depth: "7–15m", exposedFrom: 300, isShelter: false, desc: "淡水河口南側沙質與外圍礁岩交界；遇大雨淡水沖刷時頭足類會明顯退至較深鹹水層。" }
+      ]
+    },
+    {
+      name: "白沙灣 / 麟山鼻", lat: 25.2862, lon: 121.5110,
+      habitats: [
+        { type: "squid", name: "麟山鼻岬角礁盤背流灣", lat: 25.2848, lon: 121.5088, r: 220, depth: "2–7m", exposedFrom: 340, isShelter: true, desc: "安山岩與藻礁交錯，岬角兩側永遠有一側形成背風背流緩水區供軟絲躲藏。" },
+        { type: "cuttle", name: "白沙灣半月灣口砂礁交界", lat: 25.2845, lon: 121.5175, r: 260, depth: "5–12m", exposedFrom: 330, isShelter: true, desc: "半月灣具備一定遮蔽力，白沙接暗礁邊緣為花枝貼底活動熱區。" }
+      ]
+    },
+    {
+      name: "富貴角 / 老梅海域", lat: 25.2975, lon: 121.5380,
+      habitats: [
+        { type: "squid", name: "富基漁港外堤與岬角東側流溝", lat: 25.2948, lon: 121.5352, r: 240, depth: "3–9m", exposedFrom: 15, isShelter: false, desc: "台灣最北端流強，需鎖定港嘴內外轉角與岬角背流處減速帶。" },
+        { type: "cuttle", name: "老梅綠石槽外側砂礁深槽", lat: 25.2950, lon: 121.5482, r: 270, depth: "7–16m", exposedFrom: 10, isShelter: false, desc: "海蝕溝外側轉入沙底的過渡地帶，平穩浪況時常見花枝靠岸。" }
+      ]
+    },
+    {
+      name: "金山 / 跳石海域", lat: 25.2305, lon: 121.6525,
+      habitats: [
+        { type: "squid", name: "燭台嶼周邊礁盤與水尾外礁", lat: 25.2288, lon: 121.6535, r: 270, depth: "4–12m", exposedFrom: 35, isShelter: false, desc: "火山礁岩立體，浪平時軟絲巡游流溝；東北大浪來襲時多躲至岬灣內側。" },
+        { type: "cuttle", name: "磺港外海與港嘴砂泥礁交界", lat: 25.2248, lon: 121.6498, r: 260, depth: "8–18m", exposedFrom: 45, isShelter: true, desc: "沙灘出口延伸至外礁之沙礁交錯區，具備半庇護地形，適合貼底搜尋花枝。" }
+      ]
+    },
+    {
+      name: "野柳 / 萬里海域", lat: 25.2110, lon: 121.6938,
+      habitats: [
+        { type: "squid", name: "野柳岬西北側礁岩與斷堤外溝", lat: 25.2118, lon: 121.6932, r: 240, depth: "4–11m", exposedFrom: 335, isShelter: false, desc: "岬角與斷堤形成明顯潮目交界，秋冬季大軟絲巡游必經通道。" },
+        { type: "cuttle", name: "龜吼至翡翠灣避風砂礁帶", lat: 25.1965, lon: 121.6885, r: 300, depth: "7–16m", exposedFrom: 75, isShelter: true, desc: "受野柳岬角阻擋北向/西北向風浪，屬萬里灣內優良花枝與軟絲避浪區。" },
+        { type: "ban", name: "🚫 野柳水產保育區（全面禁漁）", lat: 25.2065, lon: 121.6915, r: 170, depth: "3–10m", exposedFrom: 60, isShelter: true, desc: "野柳海洋世界至東澳漁港間海域設有軟絲竹叢礁復育區，新北市府公告完全禁止任何採捕與垂釣。" }
+      ]
+    },
+    {
+      name: "基隆嶼 / 和平島八斗子", lat: 25.1620, lon: 121.7905,
+      habitats: [
+        { type: "squid", name: "基隆嶼背流側礁盤迴流區", lat: 25.1925, lon: 121.7875, r: 320, depth: "6–18m", exposedFrom: 15, isShelter: true, desc: "孤島永遠存在背浪與背流渦旋面，船釣或繞島避風側為大軟絲躲藏熱點。" },
+        { type: "squid", name: "望海巷 / 八斗子綠燈外礁流溝", lat: 25.1462, lon: 121.7975, r: 240, depth: "4–10m", exposedFrom: 30, isShelter: false, desc: "防波堤與潮境礁石邊緣，浪小時水清咬況佳；北浪過大時魚群會縮進港內堤腳。" },
+        { type: "cuttle", name: "和平島至碧砂間避風沙礁凹槽", lat: 25.1535, lon: 121.7825, r: 260, depth: "8–16m", exposedFrom: 25, isShelter: true, desc: "和平島與八斗子間內凹避風砂礁帶，底棲花枝與避浪軟絲在浪大時偏好此區。" }
+      ]
+    },
+    {
+      name: "深澳 / 潮境海灣", lat: 25.1348, lon: 121.8195,
+      habitats: [
+        { type: "squid", name: "深澳港嘴紅燈外與象鼻岩礁溝", lat: 25.1332, lon: 121.8220, r: 230, depth: "4–11m", exposedFrom: 25, isShelter: true, desc: "深澳岬角可替西南側港區阻擋部份湧浪，港嘴緩流帶為軟絲避浪巡游點。" },
+        { type: "cuttle", name: "深澳灣內側砂泥礁庇護深槽", lat: 25.1355, lon: 121.8125, r: 270, depth: "8–20m", exposedFrom: 15, isShelter: true, desc: "半封閉海灣避風浪能力強，大浪時花枝與軟絲皆容易退入灣內貼底躲藏。" }
+      ]
+    },
+    {
+      name: "鼻頭角 / 龍洞海域", lat: 25.1225, lon: 121.9215,
+      habitats: [
+        { type: "squid", name: "龍洞灣北岸海洋公園外礁帶", lat: 25.1180, lon: 121.9200, r: 200, depth: "3–9m", exposedFrom: 80, isShelter: false, desc: "岩礁緩流帶，東北/東浪 < 1.3m 時極佳；大浪時須退至西南灣內找避浪點。" },
+        { type: "squid", name: "龍洞岩場東側走浪外礁", lat: 25.1072, lon: 121.9268, r: 230, depth: "4–12m", exposedFrom: 95, isShelter: false, desc: "直接面向東/東北外海走浪，浪小流穩時軟絲密度高，浪 > 1.5m 極危險且水濁無魚。" },
+        { type: "squid", name: "鼻頭漁港外礁與燈塔背流溝", lat: 25.1285, lon: 121.9218, r: 240, depth: "5–14m", exposedFrom: 45, isShelter: false, desc: "岬角外海潮目區，東北大浪正面衝擊時建議轉入鼻頭漁港西南內彎。" },
+        { type: "cuttle", name: "龍洞灣南側和美避浪砂礁凹槽", lat: 25.1142, lon: 121.9182, r: 230, depth: "6–15m", exposedFrom: 50, isShelter: true, desc: "龍洞灣最內側受岬角遮蔽的沙礁凹槽，東北大浪時花枝與軟絲常進灣貼底躲浪！" }
+      ]
+    },
+    {
+      name: "福隆 / 三貂角海域", lat: 25.0250, lon: 121.9760,
+      habitats: [
+        { type: "squid", name: "馬崗 / 萊萊海蝕平台邊緣流溝", lat: 25.0110, lon: 122.0040, r: 280, depth: "4–12m", exposedFrom: 95, isShelter: false, desc: "海蝕平台外側陡降海溝，極易受東/東北長湧影響，僅建議中小浪時前往。" },
+        { type: "cuttle", name: "澳底至福隆沙灘外礁避浪帶", lat: 25.0410, lon: 121.9445, r: 320, depth: "7–16m", exposedFrom: 65, isShelter: true, desc: "三貂灣內寬廣沙礁帶，澳底港內與防波堤西南側在大浪時為主要庇護點。" }
+      ]
+    },
+    {
+      name: "烏石港 / 龜山島海域", lat: 24.8710, lon: 121.8680,
+      habitats: [
+        { type: "squid", name: "大溪至梗枋外礁海藻帶", lat: 24.9385, lon: 121.9045, r: 280, depth: "4–12m", exposedFrom: 100, isShelter: false, desc: "岩礁發達、水流活躍，需視東向湧浪大小決定搜尋淺礁或港區內側。" },
+        { type: "squid", name: "龜山島南北礁盤背流區", lat: 24.8425, lon: 121.9515, r: 360, depth: "8–22m", exposedFrom: 90, isShelter: true, desc: "島嶼背面可阻隔單側湧浪，船釣大體型軟絲主要依背浪面轉移躲藏。" },
+        { type: "cuttle", name: "烏石港一字堤外側砂礁帶", lat: 24.8685, lon: 121.8442, r: 260, depth: "6–14m", exposedFrom: 105, isShelter: true, desc: "蘭陽沙岸與港口消波堤交匯，堤內與南側砂礁交界常有花枝貼底避浪。" }
+      ]
+    }
+  ];
+
+  // === 2. 地圖與底圖（Google 衛星最高 Z20） ===
+  const map = L.map("map", {
+    center: [25.15, 121.79],
+    zoom: 13,
+    minZoom: 7,
+    maxZoom: 20,
+    zoomControl: false
+  });
+  L.control.zoom({ position: "bottomright" }).addTo(map);
+
+  const BASEMAPS = {
+    google_hybrid: L.tileLayer(
+      "https://{s}.google.com/vt/lyrs=y&hl=zh-TW&x={x}&y={y}&z={z}",
+      { subdomains: ["mt0", "mt1", "mt2", "mt3"], maxZoom: 20, attribution: "&copy; Google Maps" }
+    ),
+    google_sat: L.tileLayer(
+      "https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+      { subdomains: ["mt0", "mt1", "mt2", "mt3"], maxZoom: 20, attribution: "&copy; Google Maps" }
+    ),
+    esri_sat: L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19, attribution: "&copy; Esri World Imagery" }
+    ),
+    dark: L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      { maxZoom: 19, attribution: "&copy; OpenStreetMap &copy; CARTO" }
+    )
+  };
+
+  const oceanBase = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 16, attribution: "Esri, GEBCO, NOAA" }
+  );
+  const gebcoWms = L.tileLayer.wms("https://wms.gebco.net/mapserv?", {
+    layers: "GEBCO_LATEST_2",
+    format: "image/png",
+    transparent: true,
+    opacity: 0.72,
+    attribution: "GEBCO Bathymetry"
+  });
+
+  let activeBasemapKey = "google_hybrid";
+  BASEMAPS[activeBasemapKey].addTo(map);
+
+  const habitatLayerGroup = L.layerGroup().addTo(map);
+
+  // === 3. 單位與 BFT ===
+  const UNIT_MODES = ["kt", "ms", "kmh"];
+  let unitIdx = 0;
+  const getSubUnit = () => UNIT_MODES[unitIdx];
+
+  const BFT_TABLE = [
+    { level: 0,  maxMs: 0.29,  name: "無風", color: "#38bdf8" },
+    { level: 1,  maxMs: 1.59,  name: "軟風", color: "#38bdf8" },
+    { level: 2,  maxMs: 3.39,  name: "輕風", color: "#22d3ee" },
+    { level: 3,  maxMs: 5.49,  name: "微風", color: "#2dd4bf" },
+    { level: 4,  maxMs: 7.99,  name: "和風", color: "#4ade80" },
+    { level: 5,  maxMs: 10.79, name: "清風", color: "#facc15" },
+    { level: 6,  maxMs: 13.89, name: "強風", color: "#fb923c" },
+    { level: 7,  maxMs: 17.19, name: "疾風", color: "#f87171" },
+    { level: 8,  maxMs: 20.79, name: "大風", color: "#ef4444" },
+    { level: 9,  maxMs: 24.49, name: "烈風", color: "#e879f9" },
+    { level: 10, maxMs: 28.49, name: "狂風", color: "#c084fc" },
+    { level: 11, maxMs: 32.69, name: "暴風", color: "#a855f7" },
+    { level: 12, maxMs: 999,   name: "颶風", color: "#9333ea" }
+  ];
+
+  function msToBft(ms) {
+    if (ms == null || isNaN(ms)) return { level: 0, name: "--", color: "#94a3b8" };
+    for (const row of BFT_TABLE) if (ms <= row.maxMs) return row;
+    return BFT_TABLE[12];
+  }
+
+  function formatSubSpeed(ms) {
+    if (ms == null || isNaN(ms)) return "--";
+    const u = getSubUnit();
+    if (u === "kt")  return `${(ms * 1.94384).toFixed(1)} kt`;
+    if (u === "kmh") return `${(ms * 3.6).toFixed(1)} km/h`;
+    return `${ms.toFixed(1)} m/s`;
+  }
+
+  function formatMarineSpeed(ms) {
+    if (ms == null || isNaN(ms)) return "--";
+    return getSubUnit() === "kt"
+      ? `${(ms * 1.94384).toFixed(2)} 節(kt)`
+      : `${ms.toFixed(2)} m/s`;
+  }
+
+  const waveSpeedFromPeriod = (T) => (T && T > 0 ? 1.56 * T : null);
+  const angleDiff = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
+  const dirToText = (deg) => {
+    if (deg == null || isNaN(deg)) return "--";
+    const dirs = ["北", "北東北", "東北", "東東北", "東", "東東南", "東南", "南東南",
+                  "南", "南西南", "西南", "西西南", "西", "西西北", "西北", "北西北"];
+    return dirs[Math.round(((deg % 360) / 22.5)) % 16];
+  };
+  const formatTime = (unixSec) => {
+    const d = new Date(unixSec * 1000);
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:00`;
+  };
+
+  // === 4. 全域狀態 ===
+  const ROWS = 4, COLS = 5;
+  const NORTH_BOUNDS = { minLat: 24.75, maxLat: 25.42, minLon: 121.15, maxLon: 122.15 };
+  let activeLayer = "wind";
+  let showHabitats = true;
+  let seeThroughMode = true;
+  let hourIndex = 0;
+  let maxHours = 72;
+  let isPlaying = false;
+  let playTimer = null;
+  let currentSpotIdx = 6;
+
+  let gridMeta = null;
+  let gridLastFetchTime = 0;
+  let gridFetchInFlight = null;
+
+  let selectedPointData = null;
+  let selectedDepthInfo = { centerElev: null, deepBearingDeg: null };
+  let clickMarker = null;
+  let inspectSeq = 0;
+  const spotMarkers = [];
+
+  const canvas = document.getElementById("overlay-canvas");
+  const ctx = canvas.getContext("2d");
+  const particles = [];
+  const PARTICLE_COUNT = 780;
+
+  const WIND_BFT_STOPS = [[30,58,138],[2,132,199],[13,148,136],[34,197,94],[234,179,8],[249,115,22],[239,68,68],[168,85,247]];
+  const CURR_STOPS     = [[15,23,42],[3,105,161],[6,182,212],[34,197,94],[245,158,11],[239,68,68]];
+  const WAVE_STOPS     = [[30,41,59],[2,132,199],[20,184,166],[245,158,11],[239,68,68],[219,39,119]];
+  const RAIN_STOPS     = [[56,189,248],[37,99,235],[234,179,8],[239,68,68],[192,38,212]];
+
+  const LEGENDS = {
+    wind: {
+      title: () => "風速 (BFT 蒲福風級)",
+      gradient: "linear-gradient(to right, #1e3a8a, #0284c7, #0d9488, #22c55e, #eab308, #f97316, #ef4444, #a855f7)",
+      labels: () => ["0-2級", "3級", "4級", "5級", "6級", "7級", "8級+"]
+    },
+    current: {
+      title: () => `海流流速 (${getSubUnit() === "kt" ? "節 kt" : "m/s"})`,
+      gradient: "linear-gradient(to right, #0f172a, #0369a1, #06b6d4, #22c55e, #f59e0b, #ef4444)",
+      labels: () => getSubUnit() === "kt" ? ["0", "0.6kt", "1.2kt", "2.0kt", "3.0kt+"] : ["0", "0.3", "0.6", "1.0", "1.5+"]
+    },
+    wave: {
+      title: () => `浪高 (m) / 浪速 (${getSubUnit() === "kt" ? "kt" : "m/s"})`,
+      gradient: "linear-gradient(to right, #1e293b, #0284c7, #14b8a6, #f59e0b, #ef4444, #db2777)",
+      labels: () => ["0m", "1m", "2m", "4m", "6m+"]
+    },
+    rain: {
+      title: () => "降雨範圍 (mm/h) 與 降雨機率 (%)",
+      gradient: "linear-gradient(to right, rgba(56,189,248,0.12), #38bdf8, #2563eb, #eab308, #ef4444, #c026d4)",
+      labels: () => ["0mm", "1mm", "5mm", "15mm", "30mm+"]
+    },
+    depth: {
+      title: () => "海底深度 (公尺 m · GEBCO)",
+      gradient: "linear-gradient(to right, #bae6fd, #38bdf8, #0284c7, #1e40af, #0f172a)",
+      labels: () => ["0m", "-100m", "-500m", "-2000m", "-5000m+"]
+    }
+  };
+
+  function updateLegend() {
+    const cfg = LEGENDS[activeLayer];
+    document.getElementById("legend-title").textContent = cfg.title();
+    document.getElementById("legend-bar").style.background = cfg.gradient;
+    document.getElementById("legend-labels").innerHTML = cfg.labels().map(l => `<span>${l}</span>`).join("");
+  }
+
+  function colorForValue(val, maxVal, stops) {
+    const t = Math.max(0, Math.min(1, val / maxVal));
+    const idx = t * (stops.length - 1);
+    const i = Math.floor(idx), f = idx - i;
+    const c0 = stops[i], c1 = stops[Math.min(stops.length - 1, i + 1)];
+    return [
+      Math.round(c0[0] + (c1[0] - c0[0]) * f),
+      Math.round(c0[1] + (c1[1] - c0[1]) * f),
+      Math.round(c0[2] + (c1[2] - c0[2]) * f)
+    ];
+  }
+
+  function setStatus(text, isLoading = false) {
+    const el = document.getElementById("status");
+    el.textContent = text;
+    el.classList.toggle("loading", isLoading);
+  }
+
+  function switchBasemap(newKey) {
+    Object.values(BASEMAPS).forEach(l => map.removeLayer(l));
+    map.removeLayer(oceanBase);
+    map.removeLayer(gebcoWms);
+    if (activeLayer === "depth") {
+      oceanBase.addTo(map);
+      gebcoWms.addTo(map);
+    } else {
+      BASEMAPS[newKey].addTo(map);
+    }
+  }
+
+  async function safeJsonFetch(url) {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data && data.error) throw new Error(data.reason || "API Error");
+    return data;
+  }
+
+  // === 5. 真實海況驅動：軟絲 & 花枝行動與躲藏位置推演引擎 ===
+  function offsetLatLon(lat, lon, bearingDeg, distMeters) {
+    const R = 6371000;
+    const rad = (bearingDeg * Math.PI) / 180;
+    const latRad = (lat * Math.PI) / 180;
+    const dLat = (distMeters * Math.cos(rad)) / R;
+    const dLon = (distMeters * Math.sin(rad)) / (R * Math.cos(latRad));
+    return [lat + (dLat * 180) / Math.PI, lon + (dLon * 180) / Math.PI];
+  }
+
+  function buildSectorLatLngs(lat, lon, centerBearing, halfAngle, innerR, outerR) {
+    const pts = [];
+    const steps = 14;
+    for (let s = 0; s <= steps; s++) {
+      const ang = centerBearing - halfAngle + (2 * halfAngle * s) / steps;
+      pts.push(offsetLatLon(lat, lon, ang, outerR));
+    }
+    for (let s = steps; s >= 0; s--) {
+      const ang = centerBearing - halfAngle + (2 * halfAngle * s) / steps;
+      pts.push(offsetLatLon(lat, lon, ang, innerR));
+    }
+    return pts;
+  }
+
+  // 根據即時在地海況推算頭足類行動模式、躲藏水層、偏移方位與精準分數
+  function analyzeCephalopodBehavior(d, idx) {
+    const dt = new Date(d.times[idx] * 1000);
+    const month = dt.getMonth() + 1;
+    const hour = dt.getHours();
+
+    const windMs = d.windSpd[idx] ?? 3;
+    const bft = msToBft(windMs).level;
+    const windDir = d.windDir[idx] ?? 45;
+    const curr = d.currSpd[idx] ?? 0.25; // m/s
+    const currKt = curr * 1.94384;
+    const currDir = d.currDir[idx]; // 去向
+    const waveH = d.waveH[idx] ?? 0.6;
+    const wavePer = d.wavePer[idx] ?? 6.0;
+    const waveDir = d.waveDir[idx] ?? windDir; // 來向
+    const rainMm = d.rainMm[idx] ?? 0;
+
+    const isTwilight = (hour >= 5 && hour <= 8) || (hour >= 16 && hour <= 19);
+    const isNight = hour >= 20 || hour <= 4;
+
+    // 1. 判定浪況壓力等級（長週期 >= 9.5s 湧浪即使 1.0m 岸邊衝擊也很大）
+    const heavySwell = waveH >= 1.5 || (waveH >= 1.0 && wavePer >= 9.5);
+    const moderateWave = !heavySwell && waveH >= 0.75;
+
+    // 2. 判定流速模式
+    const strongCurr = currKt >= 0.9; // >= 0.46 m/s
+    const slackCurr = currKt < 0.14;  // < 0.07 m/s
+
+    // 3. 判定降雨淡水化與濁水風險
+    const turbidRain = rainMm >= 1.0;
+
+    // 4. 季節基礎分 (0~25)
+    const squidSeason = [10, 11, 12, 1, 2, 3, 4].includes(month) ? 24 : ([5, 9].includes(month) ? 19 : 13);
+    const cuttleSeason = [1, 2, 3, 4, 5].includes(month) ? 24 : ([11, 12].includes(month) ? 17 : 8);
+
+    // 5. 光線時段分 (0~22)
+    const squidTimeScore = isTwilight ? 22 : (isNight ? 18 : 10);
+    const cuttleTimeScore = isTwilight ? 20 : (isNight ? 17 : 12);
+
+    // 6. 流況適配分 (0~22)
+    const squidCurrScore = (currKt >= 0.15 && currKt <= 0.85) ? 22 : (slackCurr ? 13 : 14);
+    const cuttleCurrScore = currKt <= 0.65 ? 21 : 12;
+
+    // 7. 浪況與天候扣分（重浪/強風/濁水大幅下修「外海公開點」得分！）
+    let seaComfort = 32;
+    if (waveH >= 2.0) seaComfort -= 22;
+    else if (waveH >= 1.5) seaComfort -= 16;
+    else if (waveH >= 1.1 && wavePer >= 9.0) seaComfort -= 12;
+    else if (waveH >= 0.8) seaComfort -= 4;
+
+    if (bft >= 7) seaComfort -= 12;
+    else if (bft === 6) seaComfort -= 8;
+    else if (bft === 5) seaComfort -= 3;
+
+    if (rainMm >= 2.5) seaComfort -= 10;
+    else if (rainMm >= 1.0) seaComfort -= 5;
+
+    seaComfort = Math.max(0, Math.min(32, seaComfort));
+
+    const squidScore = Math.max(8, Math.min(96, Math.round(squidSeason + squidTimeScore + squidCurrScore + seaComfort)));
+    const cuttleScore = Math.max(8, Math.min(96, Math.round(cuttleSeason + cuttleTimeScore + cuttleCurrScore + seaComfort)));
+
+    // === 推演「軟絲採取行動」與「躲藏位置」 ===
+    const leeWaveDir = (waveDir + 180) % 360;
+    const flowDownDir = currDir != null ? currDir : ((windDir + 180) % 360);
+
+    let squidAction = "", squidDepth = "", squidTargetBearing = flowDownDir, squidShiftDist = 0;
+    if (heavySwell || bft >= 6) {
+      // 大浪強制避浪撤離模型：往背浪側深灣或港內偏移
+      squidTargetBearing = leeWaveDir;
+      squidShiftDist = 360;
+      squidDepth = "8–18m（撤離淺礁・進灣或下沉避浪）";
+      squidAction = `🌊 <b>大浪撤離與進灣行動</b>：${dirToText(waveDir)}浪達 <b>${waveH.toFixed(1)}m</b>（週期 ${wavePer.toFixed(1)}s），公開外礁白沫碎浪強，軟絲<b>不會待在 2–5m 迎浪淺礁</b>，將往<b>${dirToText(leeWaveDir)}背浪避風側、內凹海灣或漁港內堤腳</b>集中躲浪待機。`;
+    } else if (turbidRain) {
+      squidTargetBearing = selectedDepthInfo.deepBearingDeg ?? leeWaveDir;
+      squidShiftDist = 200;
+      squidDepth = "7–15m（避開表層淡水・貼清澈深水）";
+      squidAction = `💧 <b>避淡水下沉行動</b>：降雨 <b>${rainMm.toFixed(1)} mm/h</b> 易稀釋表層鹽度與混濁度，軟絲會下沉貼近高鹽度清澈底層或退往港外深礁邊緣。`;
+    } else if (strongCurr) {
+      squidTargetBearing = flowDownDir;
+      squidShiftDist = 110;
+      squidDepth = isNight || isTwilight ? "4–10m（躲於結構背流渦旋）" : "7–14m（深層背流靜水）";
+      squidAction = `🌀 <b>貼構造躲強流行動</b>：流速偏快（${currKt.toFixed(2)} kt 往${dirToText(flowDownDir)}），軟絲會緊貼岬角、礁岩或防波堤<b>下游背流減速區</b>與潮目線，等待小魚被沖入緩流時伏擊。`;
+    } else if (slackCurr) {
+      squidTargetBearing = flowDownDir;
+      squidShiftDist = 60;
+      squidDepth = isNight || isTwilight ? "3–9m（障礙物陰影區）" : "8–15m（貼底礁盤縫隙）";
+      squidAction = `⏸️ <b>停流靜止待機行動</b>：海流偏緩（${currKt.toFixed(2)} kt），獵物移動少，軟絲多懸停於消波塊陰影、海藻帶或礁岩陡坡處靜候。`;
+    } else {
+      squidTargetBearing = flowDownDir;
+      squidShiftDist = 90;
+      squidDepth = isTwilight ? "2–7m（上浮巡游黃金層）" : (isNight ? "3–8m（光影交界與中層）" : "6–12m（礁邊中下層）");
+      squidAction = `✨ <b>主動巡游獵食行動</b>：浪況（${waveH.toFixed(1)}m）與流水（${currKt.toFixed(2)} kt 往${dirToText(flowDownDir)}）配合度佳，軟絲沿${isTwilight ? "近岸礁盤" : "流溝潮目"}主動巡游覓食，可積極搜索緩流交界。`;
+    }
+
+    // === 推演「花枝採取行動」與「躲藏位置」 ===
+    const cuttleBearing = selectedDepthInfo.deepBearingDeg != null ? selectedDepthInfo.deepBearingDeg : leeWaveDir;
+    let cuttleAction = "", cuttleDepth = "";
+    if (heavySwell || bft >= 6) {
+      cuttleDepth = "12–25m（深水沙泥槽緊貼埋沙）";
+      cuttleAction = `🟠 <b>深槽埋沙避浪行動</b>：表層浪湧大（${waveH.toFixed(1)}m），底棲花枝停止大範圍游動，往<b>${dirToText(cuttleBearing)}背浪深側砂礁凹槽</b>貼底埋沙躲藏，等浪減小後才會再度出沒。`;
+    } else {
+      cuttleDepth = (isNight || isTwilight) ? "6–15m（離開沙床貼底半公尺巡游）" : "8–18m（礁岩腳下砂地邊界）";
+      cuttleAction = `🟠 <b>砂礁交界貼底伏擊</b>：鎖定衛星圖中「黑影礁盤接淺色沙地」邊緣，花枝${isNight || isTwilight ? "貼底緩慢游動捕食甲殼類" : "日間多埋伏於礁腳砂溝等待貼底獵物"}（${[12,1,2,3,4,5].includes(month) ? "屬冬春靠岸旺季" : "11月前哨期偏深槽"}）。`;
+    }
+
+    const grade = (s) => s >= 72 ? { txt: "高 (適合)", cls: "score-high", short: "★" }
+                       : s >= 50 ? { txt: "中 (需挑點)", cls: "score-mid", short: "○" }
+                       :           { txt: "低 (建議避浪/改期)", cls: "score-low", short: "△" };
+
+    return {
+      squidScore, cuttleScore, month, hour, isTwilight, isNight,
+      bft, windDir, currKt, currDir, waveH, wavePer, waveDir, rainMm,
+      heavySwell, moderateWave, strongCurr, slackCurr, turbidRain,
+      leeWaveDir, flowDownDir, squidTargetBearing, squidShiftDist, cuttleBearing,
+      squidDepth, squidAction, cuttleDepth, cuttleAction, grade
+    };
+  }
+
+  // 計算實地微棲地受當下海況影響的個別評分（會將迎浪外礁降分、避浪內灣加分）
+  function scoreSpecificHabitat(h, ev) {
+    if (h.type === "ban") return { score: 0, tag: "🚫 禁漁區", isExposedHit: false };
+
+    let score = h.type === "squid" ? ev.squidScore : ev.cuttleScore;
+    const diffWave = angleDiff(ev.waveDir, h.exposedFrom);
+    const isExposedHit = diffWave <= 75;
+    const isLeeProtected = diffWave >= 105;
+
+    if (ev.heavySwell || ev.bft >= 6) {
+      if (h.isShelter || isLeeProtected) {
+        score = Math.min(92, score + 22); // 浪大時庇護灣與背浪面成為頭足類避難集中熱區！
+      } else if (isExposedHit) {
+        score = Math.max(10, score - 25); // 迎浪外礁碎浪危險且魚散
+      }
+    } else if (ev.moderateWave) {
+      if (h.isShelter) score = Math.min(92, score + 8);
+      else if (isExposedHit) score = Math.max(15, score - 6);
+    }
+
+    return { score: Math.round(score), isExposedHit, isLeeProtected };
+  }
+
+  function renderHabitatZonesOnMap() {
+    habitatLayerGroup.clearLayers();
+    if (!showHabitats || !selectedPointData) return;
+
+    const { lat, lon } = selectedPointData;
+    const i = Math.min(hourIndex, selectedPointData.times.length - 1);
+    const ev = analyzeCephalopodBehavior(selectedPointData, i);
+
+    const isSat = activeBasemapKey !== "dark";
+    const fillOp = isSat ? 0.14 : 0.24;
+
+    // 0. 畫出「來浪衝擊方向線」（橘紅虛線）幫助使用者直覺看懂為什麼往對側躲
+    if (ev.waveH >= 0.7) {
+      const waveFromPt = offsetLatLon(lat, lon, ev.waveDir, 680);
+      L.polyline([waveFromPt, [lat, lon]], {
+        color: "#f97316", weight: 2.5, dashArray: "6,6", opacity: 0.85
+      }).addTo(habitatLayerGroup);
+      const midWave = offsetLatLon(lat, lon, ev.waveDir, 440);
+      L.marker(midWave, {
+        icon: L.divIcon({
+          className: "",
+          html: `<div class="hab-map-label" style="color:#fdba74;border:1px solid #f97316;">🌊 ${dirToText(ev.waveDir)}來浪 ${ev.waveH.toFixed(1)}m</div>`,
+          iconSize: [null, null], iconAnchor: [55, 10]
+        })
+      }).addTo(habitatLayerGroup);
+    }
+
+    // 1. 動態軟絲躲藏扇區（浪大時自動往背浪方向偏移並註記避浪撤離！）
+    const sqAnchor = ev.squidShiftDist > 0
+      ? offsetLatLon(lat, lon, ev.squidTargetBearing, ev.squidShiftDist)
+      : [lat, lon];
+
+    const sqRadius = ev.heavySwell ? 380 : (ev.strongCurr ? 340 : 420);
+    const dynSquidPts = buildSectorLatLngs(sqAnchor[0], sqAnchor[1], ev.squidTargetBearing, ev.strongCurr ? 38 : 52, 70, sqRadius);
+    const sqColor = ev.heavySwell ? "#38bdf8" : "#34d399";
+
+    L.polygon(dynSquidPts, {
+      color: sqColor, weight: 2.5, dashArray: "6,4",
+      fillColor: ev.heavySwell ? "#0ea5e9" : "#10b981", fillOpacity: fillOp
+    }).addTo(habitatLayerGroup).bindPopup(
+      `<b>🟢 軟絲即時行為預測區（${ev.heavySwell ? "大浪背風避浪區" : "順流緩流/潮目區"}）</b><br/>
+       • 建議搜尋水層：<b>${ev.squidDepth}</b><br/>
+       • ${ev.squidAction}`
+    );
+
+    const sqLabelPos = offsetLatLon(sqAnchor[0], sqAnchor[1], ev.squidTargetBearing, sqRadius * 0.72);
+    const sqTagText = ev.heavySwell ? "🟢 軟絲避浪撤離預測區 (背浪/內灣)" : (ev.strongCurr ? "🟢 軟絲避強流渦旋區" : "🟢 軟絲順流/潮目覓食區");
+    L.marker(sqLabelPos, {
+      icon: L.divIcon({
+        className: "",
+        html: `<div class="hab-map-label" style="color:#6ee7b7;border:1px solid ${sqColor};">${sqTagText}</div>`,
+        iconSize: [null, null], iconAnchor: [85, 10]
+      })
+    }).addTo(habitatLayerGroup);
+
+    // 2. 動態花枝躲藏扇區（永遠指向背浪與偏深側）
+    const ctAnchor = ev.heavySwell
+      ? offsetLatLon(lat, lon, ev.cuttleBearing, 280)
+      : [lat, lon];
+    const dynCuttlePts = buildSectorLatLngs(ctAnchor[0], ctAnchor[1], ev.cuttleBearing, 42, 110, 480);
+    L.polygon(dynCuttlePts, {
+      color: "#fbbf24", weight: 2.5, dashArray: "3,4",
+      fillColor: "#f59e0b", fillOpacity: fillOp * 0.9
+    }).addTo(habitatLayerGroup).bindPopup(
+      `<b>🟠 花枝即時行為預測區</b><br/>
+       • 建議搜尋水層：<b>${ev.cuttleDepth}</b><br/>
+       • ${ev.cuttleAction}`
+    );
+
+    const ctLabelPos = offsetLatLon(ctAnchor[0], ctAnchor[1], ev.cuttleBearing, 340);
+    const ctTagText = ev.heavySwell ? "🟠 花枝深槽埋沙避浪區" : "🟠 花枝貼底砂礁交界區";
+    L.marker(ctLabelPos, {
+      icon: L.divIcon({
+        className: "",
+        html: `<div class="hab-map-label" style="color:#fcd34d;border:1px solid #f59e0b;">${ctTagText}</div>`,
+        iconSize: [null, null], iconAnchor: [70, 10]
+      })
+    }).addTo(habitatLayerGroup);
+
+    // 3. 疊加附近北台灣實地微棲地（依當下海況即時重新評分與高低優先排序！）
+    const nearbyZones = [];
+    NORTH_SPOTS.forEach((spot) => {
+      spot.habitats.forEach((h) => {
+        const dist = map.distance([lat, lon], [h.lat, h.lon]);
+        if (dist <= 12000) {
+          const evalH = scoreSpecificHabitat(h, ev);
+          nearbyZones.push({ ...h, dist, ...evalH });
+        }
+      });
+    });
+
+    // 依分數高低排序（禁漁區放最後）
+    nearbyZones.sort((a, b) => {
+      if (a.type === "ban") return 1;
+      if (b.type === "ban") return -1;
+      return b.score - a.score;
+    });
+
+    nearbyZones.forEach((h) => {
+      let style;
+      if (h.type === "ban") {
+        style = { color: "#f87171", fillColor: "#ef4444", fillOpacity: isSat ? 0.18 : 0.28, weight: 2.5, dashArray: "5,4" };
+      } else if (ev.heavySwell && h.isExposedHit && !h.isShelter) {
+        // 大浪迎浪外礁 → 轉為紅虛線警示圈
+        style = { color: "#f87171", fillColor: "#ef4444", fillOpacity: 0.08, weight: 2, dashArray: "4,6" };
+      } else if (h.type === "squid") {
+        style = { color: "#34d399", fillColor: "#10b981", fillOpacity: h.score >= 70 ? fillOp * 1.4 : fillOp, weight: h.score >= 70 ? 3 : 2 };
+      } else {
+        style = { color: "#fbbf24", fillColor: "#f59e0b", fillOpacity: h.score >= 70 ? fillOp * 1.4 : fillOp, weight: h.score >= 70 ? 3 : 2 };
+      }
+
+      const circle = L.circle([h.lat, h.lon], { radius: h.r, ...style }).addTo(habitatLayerGroup);
+      const badge = h.type === "ban" ? "🚫 禁漁保育區"
+                  : (ev.heavySwell && h.isExposedHit && !h.isShelter) ? "⚠️ 迎浪衝擊區（建議避開）"
+                  : (h.type === "squid" ? "🟢 軟絲推薦熱區" : "🟠 花枝推薦熱區");
+      circle.bindPopup(
+        `<b>${badge}：${h.name}</b><br/>
+         • 即時海況適宜度：<b>${h.type === "ban" ? "禁止垂釣" : h.score + " 分"}</b><br/>
+         • 參考水深：<b>${h.depth}</b>（距選點 ${(h.dist / 1000).toFixed(1)} km）<br/>
+         • 在地解讀：${h.desc}`
+      );
+    });
+
+    // 更新左側推薦熱區排序標籤
+    const zonesListEl = document.getElementById("hab-zones-list");
+    if (nearbyZones.length > 0) {
+      zonesListEl.innerHTML = `<div style="margin-bottom:4px; color:#94a3b8;">依此刻海況排序周邊實地熱區（點擊放大 Z16）：</div>` +
+        nearbyZones.slice(0, 6).map((h) => {
+          const isWarn = h.type === "ban" || (ev.heavySwell && h.isExposedHit && !h.isShelter);
+          const cls = isWarn ? "tag-warn" : (h.type === "squid" ? "tag-squid" : "tag-cuttle");
+          const icon = h.type === "ban" ? "🚫" : isWarn ? "⚠️" : (h.type === "squid" ? "🟢" : "🟠");
+          const scoreStr = h.type === "ban" ? "禁漁" : `${h.score}分`;
+          return `<span class="hab-zone-tag ${cls}" data-zlat="${h.lat}" data-zlon="${h.lon}">${icon} ${h.name} (${scoreStr})</span>`;
+        }).join("");
+      zonesListEl.querySelectorAll(".hab-zone-tag").forEach(el => {
+        el.onclick = () => {
+          map.setView([parseFloat(el.dataset.zlat), parseFloat(el.dataset.zlon)], 16, { animate: true });
+        };
+      });
+    } else {
+      zonesListEl.innerHTML = `<span style="color:#94a3b8;">此處為自選海域點位，已依即時流向、浪向與地形深側繪製行為預測區。</span>`;
+    }
+  }
+
+  // 掃描未來 72 小時內最適合軟絲/花枝出擊的黃金窗口
+  function findBestWindow72h(d) {
+    let bestH = 0, bestScore = -1, bestEv = null;
+    for (let h = 0; h < d.times.length; h++) {
+      const ev = analyzeCephalopodBehavior(d, h);
+      const comb = Math.max(ev.squidScore, ev.cuttleScore);
+      if (comb > bestScore) {
+        bestScore = comb;
+        bestH = h;
+        bestEv = ev;
+      }
+    }
+    return { bestH, bestScore, bestEv };
+  }
+
+  // === 6. 地圖沿岸站點標記 ===
+  function renderSpotPins() {
+    spotMarkers.forEach(m => map.removeLayer(m));
+    spotMarkers.length = 0;
+
+    NORTH_SPOTS.forEach((s, idx) => {
+      const icon = L.divIcon({
+        className: "",
+        html: `<div class="coastal-pin ${idx === currentSpotIdx ? "selected" : ""}">${s.name.split(" / ")[0]}</div>`,
+        iconSize: [null, null],
+        iconAnchor: [35, 12]
+      });
+      const marker = L.marker([s.lat, s.lon], { icon }).addTo(map);
+      marker.on("click", (e) => {
+        L.DomEvent.stopPropagation(e);
+        selectPresetSpot(idx);
+      });
+      spotMarkers.push(marker);
+    });
+  }
+
+  // === 7. 抓取北台灣 20 點網格（含 5 分鐘快取防 429） ===
+  async function fetchGridData(forceRefresh = false) {
+    const c = map.getCenter();
+    const inNorthBox =
+      c.lat >= NORTH_BOUNDS.minLat && c.lat <= NORTH_BOUNDS.maxLat &&
+      c.lng >= NORTH_BOUNDS.minLon && c.lng <= NORTH_BOUNDS.maxLon;
+
+    if (!forceRefresh && gridMeta && inNorthBox && (Date.now() - gridLastFetchTime < 300000)) {
+      drawStaticField();
+      return;
+    }
+    if (gridFetchInFlight) return gridFetchInFlight;
+
+    setStatus("更新北台灣海域網格...", true);
+
+    let minLat, maxLat, minLon, maxLon;
+    if (inNorthBox) {
+      ({ minLat, maxLat, minLon, maxLon } = NORTH_BOUNDS);
+    } else {
+      const b = map.getBounds().pad(0.1);
+      const halfLat = Math.max(0.25, (b.getNorth() - b.getSouth()) / 2);
+      const halfLon = Math.max(0.3, (b.getEast() - b.getWest()) / 2);
+      minLat = Math.max(-80, c.lat - halfLat); maxLat = Math.min(80, c.lat + halfLat);
+      minLon = c.lng - halfLon; maxLon = c.lng + halfLon;
+    }
+
+    const lats = [], lons = [];
+    for (let r = 0; r < ROWS; r++) {
+      const lat = minLat + (maxLat - minLat) * (r / (ROWS - 1));
+      for (let col = 0; col < COLS; col++) {
+        const lon = minLon + (maxLon - minLon) * (col / (COLS - 1));
+        lats.push(lat.toFixed(4));
+        lons.push(lon.toFixed(4));
+      }
+    }
+
+    const latStr = lats.join(","), lonStr = lons.join(",");
+    const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latStr}&longitude=${lonStr}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation_probability,precipitation&wind_speed_unit=ms&forecast_days=4&timeformat=unixtime`;
+    const mUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${latStr}&longitude=${lonStr}&hourly=wave_height,wave_direction,wave_period,ocean_current_velocity,ocean_current_direction&forecast_days=4&timeformat=unixtime`;
+
+    gridFetchInFlight = (async () => {
+      try {
+        const [wRes, mRes] = await Promise.all([safeJsonFetch(wUrl), safeJsonFetch(mUrl)]);
+        const wArr = Array.isArray(wRes) ? wRes : [wRes];
+        const mArr = Array.isArray(mRes) ? mRes : [mRes];
+
+        const times = wArr[0].hourly.time;
+        const nowSec = Math.floor(Date.now() / 1000);
+        let startIdx = 0, bestDiff = Infinity;
+        for (let i = 0; i < times.length; i++) {
+          const diff = Math.abs(times[i] - nowSec);
+          if (diff < bestDiff) { bestDiff = diff; startIdx = i; }
+        }
+        const len = Math.min(73, times.length - startIdx);
+        maxHours = len - 1;
+        document.getElementById("time-slider").max = maxHours;
+        if (hourIndex > maxHours) hourIndex = 0;
+
+        const currUnit = mArr[0]?.hourly_units?.ocean_current_velocity || "m/s";
+        const currScale = currUnit === "km/h" ? (1 / 3.6) : 1;
+
+        const points = [];
+        for (let idx = 0; idx < wArr.length; idx++) {
+          const wh = wArr[idx].hourly;
+          const mh = mArr[idx]?.hourly || {};
+          points.push({
+            lat: parseFloat(lats[idx]),
+            lon: parseFloat(lons[idx]),
+            windSpd: wh.wind_speed_10m.slice(startIdx, startIdx + len),
+            windGust: wh.wind_gusts_10m ? wh.wind_gusts_10m.slice(startIdx, startIdx + len) : wh.wind_speed_10m.slice(startIdx, startIdx + len),
+            windDir: wh.wind_direction_10m.slice(startIdx, startIdx + len),
+            rainProb: wh.precipitation_probability.slice(startIdx, startIdx + len),
+            rainMm: wh.precipitation.slice(startIdx, startIdx + len),
+            waveH: mh.wave_height ? mh.wave_height.slice(startIdx, startIdx + len) : [],
+            waveDir: mh.wave_direction ? mh.wave_direction.slice(startIdx, startIdx + len) : [],
+            wavePer: mh.wave_period ? mh.wave_period.slice(startIdx, startIdx + len) : [],
+            currSpd: mh.ocean_current_velocity
+              ? mh.ocean_current_velocity.slice(startIdx, startIdx + len).map(v => v == null ? null : v * currScale)
+              : [],
+            currDir: mh.ocean_current_direction ? mh.ocean_current_direction.slice(startIdx, startIdx + len) : []
+          });
+        }
+
+        gridMeta = { minLat, maxLat, minLon, maxLon, times: times.slice(startIdx, startIdx + len), points };
+        gridLastFetchTime = Date.now();
+        const nowStr = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+        setStatus(`網格更新 ${nowStr}`, false);
+        updateTimeLabel();
+        drawStaticField();
+      } catch (err) {
+        console.warn("Grid fetch warning:", err);
+        setStatus("網格暫忙，使用現有快取", false);
+      } finally {
+        gridFetchInFlight = null;
+      }
+    })();
+
+    return gridFetchInFlight;
+  }
+
+  // === 8. 雙線性內插 ===
+  function sampleGrid(lat, lon, tIdx, mode) {
+    if (!gridMeta) return null;
+    const { minLat, maxLat, minLon, maxLon, points } = gridMeta;
+    const fi = ((lat - minLat) / (maxLat - minLat)) * (ROWS - 1);
+    const fj = ((lon - minLon) / (maxLon - minLon)) * (COLS - 1);
+    if (fi < 0 || fi > ROWS - 1 || fj < 0 || fj > COLS - 1) return null;
+
+    const i0 = Math.floor(fi), i1 = Math.min(ROWS - 1, i0 + 1);
+    const j0 = Math.floor(fj), j1 = Math.min(COLS - 1, j0 + 1);
+    const ty = fi - i0, tx = fj - j0;
+
+    const corners = [
+      { p: points[i0 * COLS + j0], w: (1 - tx) * (1 - ty) },
+      { p: points[i0 * COLS + j1], w: tx * (1 - ty) },
+      { p: points[i1 * COLS + j0], w: (1 - tx) * ty },
+      { p: points[i1 * COLS + j1], w: tx * ty }
+    ];
+
+    if (mode === "rain") {
+      let mm = 0, prob = 0, wSum = 0;
+      for (const c of corners) {
+        const vMm = c.p.rainMm[tIdx], vProb = c.p.rainProb[tIdx];
+        if (vMm != null) { mm += vMm * c.w; prob += (vProb || 0) * c.w; wSum += c.w; }
+      }
+      return wSum > 0.2 ? { mm: mm / wSum, prob: prob / wSum } : null;
+    }
+
+    let u = 0, v = 0, scalar = 0, wSum = 0, validCount = 0;
+    for (const c of corners) {
+      let spd = null, dir = null, sc = 0;
+      if (mode === "wind") {
+        spd = c.p.windSpd[tIdx]; dir = c.p.windDir[tIdx]; sc = spd;
+      } else if (mode === "current") {
+        spd = c.p.currSpd[tIdx]; dir = c.p.currDir[tIdx]; sc = spd;
+      } else if (mode === "wave") {
+        const h = c.p.waveH[tIdx], per = c.p.wavePer[tIdx];
+        dir = c.p.waveDir[tIdx];
+        spd = waveSpeedFromPeriod(per) || (h != null ? h * 2 : null);
+        sc = h;
+      }
+      if (spd != null && dir != null) {
+        const rad = (dir * Math.PI) / 180;
+        const sign = mode === "current" ? 1 : -1;
+        u += sign * spd * Math.sin(rad) * c.w;
+        v += sign * spd * Math.cos(rad) * c.w;
+        scalar += (sc ?? spd) * c.w;
+        wSum += c.w;
+        validCount++;
+      }
+    }
+    if (validCount < 1 || wSum < 0.15) return null;
+    u /= wSum; v /= wSum; scalar /= wSum;
+    return { u, v, speed: Math.hypot(u, v), scalar };
+  }
+
+  function interpolateSeriesFromGrid(lat, lon, labelName) {
+    if (!gridMeta) return null;
+    const len = gridMeta.times.length;
+    const windSpd = [], windGust = [], windDir = [], rainProb = [], rainMm = [];
+    const waveH = [], waveDir = [], wavePer = [], currSpd = [], currDir = [];
+
+    let nearest = gridMeta.points[0], bestD = Infinity;
+    for (const p of gridMeta.points) {
+      const d = (p.lat - lat) ** 2 + (p.lon - lon) ** 2;
+      if (d < bestD) { bestD = d; nearest = p; }
+    }
+
+    for (let t = 0; t < len; t++) {
+      const ws = sampleGrid(lat, lon, t, "wind");
+      const cs = sampleGrid(lat, lon, t, "current");
+      const wv = sampleGrid(lat, lon, t, "wave");
+      const rn = sampleGrid(lat, lon, t, "rain");
+
+      windSpd.push(ws ? ws.speed : nearest.windSpd[t]);
+      windGust.push(nearest.windGust[t] ?? (ws ? ws.speed * 1.35 : 0));
+      windDir.push(ws ? ((Math.atan2(-ws.u, -ws.v) * 180 / Math.PI) + 360) % 360 : nearest.windDir[t]);
+
+      rainProb.push(rn ? Math.round(rn.prob) : nearest.rainProb[t]);
+      rainMm.push(rn ? rn.mm : nearest.rainMm[t]);
+
+      waveH.push(wv ? wv.scalar : nearest.waveH[t]);
+      waveDir.push(wv ? ((Math.atan2(-wv.u, -wv.v) * 180 / Math.PI) + 360) % 360 : nearest.waveDir[t]);
+      wavePer.push(nearest.wavePer[t]);
+
+      currSpd.push(cs ? cs.speed : nearest.currSpd[t]);
+      currDir.push(cs ? ((Math.atan2(cs.u, cs.v) * 180 / Math.PI) + 360) % 360 : nearest.currDir[t]);
+    }
+
+    return {
+      lat, lon, labelName, times: gridMeta.times,
+      windSpd, windGust, windDir, rainProb, rainMm, waveH, waveDir, wavePer, currSpd, currDir
+    };
+  }
+
+  // === 9. Canvas 熱區與粒子動畫 ===
+  const heatCanvas = document.createElement("canvas");
+  const heatCtx = heatCanvas.getContext("2d");
+
+  function resizeCanvases() {
+    const size = map.getSize();
+    canvas.width = size.x; canvas.height = size.y;
+    heatCanvas.width = size.x; heatCanvas.height = size.y;
+  }
+
+  function drawStaticField() {
+    resizeCanvases();
+    heatCtx.clearRect(0, 0, heatCanvas.width, heatCanvas.height);
+    if (!gridMeta || activeLayer === "depth") return;
+    if (seeThroughMode && activeLayer !== "rain") return;
+
+    const step = 12;
+    const w = heatCanvas.width, h = heatCanvas.height;
+    const baseAlpha = activeBasemapKey === "dark" ? 0.42 : 0.25;
+
+    for (let y = 0; y < h; y += step) {
+      for (let x = 0; x < w; x += step) {
+        const ll = map.containerPointToLatLng([x + step / 2, y + step / 2]);
+        const s = sampleGrid(ll.lat, ll.lng, hourIndex, activeLayer);
+        if (!s) continue;
+
+        let rgb, alpha = baseAlpha;
+        if (activeLayer === "wind") {
+          rgb = colorForValue(msToBft(s.speed).level, 8.5, WIND_BFT_STOPS);
+        } else if (activeLayer === "current") {
+          rgb = colorForValue(s.speed, 1.4, CURR_STOPS);
+        } else if (activeLayer === "wave") {
+          rgb = colorForValue(s.scalar, 5.0, WAVE_STOPS);
+        } else if (activeLayer === "rain") {
+          if (s.mm < 0.05 && s.prob < 20) continue;
+          if (s.mm >= 0.05) {
+            rgb = colorForValue(s.mm, 20, RAIN_STOPS);
+            alpha = Math.min(0.65, 0.24 + s.mm * 0.045);
+          } else {
+            rgb = [56, 189, 248];
+            alpha = Math.min(0.24, (s.prob / 100) * 0.24);
+          }
+        }
+        heatCtx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+        heatCtx.fillRect(x, y, step + 1, step + 1);
+      }
+    }
+
+    if (activeLayer === "rain") {
+      heatCtx.font = "600 11px sans-serif";
+      heatCtx.textAlign = "center";
+      for (const p of gridMeta.points) {
+        const prob = p.rainProb[hourIndex];
+        const mm = p.rainMm[hourIndex];
+        if (prob == null || (prob < 15 && (!mm || mm < 0.1))) continue;
+        const pt = map.latLngToContainerPoint([p.lat, p.lon]);
+        heatCtx.fillStyle = "rgba(15, 23, 42, 0.82)";
+        heatCtx.fillRect(pt.x - 16, pt.y - 9, 32, 16);
+        heatCtx.fillStyle = prob >= 60 ? "#fde047" : "#e0f2fe";
+        heatCtx.fillText(`${Math.round(prob)}%`, pt.x, pt.y + 3);
+      }
+    }
+  }
+
+  function initParticles() {
+    particles.length = 0;
+    const size = map.getSize();
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      particles.push({
+        x: Math.random() * size.x,
+        y: Math.random() * size.y,
+        age: Math.floor(Math.random() * 60)
+      });
+    }
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    if (activeLayer === "depth" || !gridMeta) return;
+
+    ctx.drawImage(heatCanvas, 0, 0);
+    if (activeLayer === "rain") return;
+
+    const speedFactor = activeLayer === "current" ? 2.8 : activeLayer === "wave" ? 0.45 : 0.28;
+    ctx.lineWidth = activeLayer === "wave" ? 2.4 : 1.7;
+
+    for (const p of particles) {
+      p.age++;
+      if (p.age > 65 || p.x < 0 || p.x > w || p.y < 0 || p.y > h) {
+        p.x = Math.random() * w;
+        p.y = Math.random() * h;
+        p.age = 0;
+      }
+      const ll = map.containerPointToLatLng([p.x, p.y]);
+      const s = sampleGrid(ll.lat, ll.lng, hourIndex, activeLayer);
+      if (!s || s.speed < 0.02) { p.age = 70; continue; }
+
+      const nx = p.x + s.u * speedFactor;
+      const ny = p.y - s.v * speedFactor;
+      const fade = Math.sin((p.age / 65) * Math.PI);
+
+      ctx.strokeStyle =
+        activeLayer === "current" ? `rgba(56, 239, 255, ${0.95 * fade})` :
+        activeLayer === "wave"    ? `rgba(255, 255, 255, ${0.9 * fade})` :
+                                    `rgba(255, 255, 255, ${0.88 * fade})`;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(nx, ny);
+      ctx.stroke();
+      p.x = nx; p.y = ny;
+    }
+  }
+
+  // === 10. 單點即時查詢 ===
+  async function fetchElevationPoint(lat, lon) {
+    try {
+      const res = await fetch(`https://openzenith.pages.dev/api/elevation?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`, { cache: "no-store" });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const v = data.elevation ?? data.value ?? data.results?.[0]?.elevation;
+      return (v != null && !isNaN(v)) ? Number(v) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function inspectPoint(lat, lng, labelName = "自選海域點位") {
+    const mySeq = ++inspectSeq;
+    if (clickMarker) map.removeLayer(clickMarker);
+    clickMarker = L.circleMarker([lat, lng], {
+      radius: 7, color: "#fde047", weight: 2.5, fillColor: "#0284c7", fillOpacity: 0.95
+    }).addTo(map);
+
+    const insp = document.getElementById("inspector");
+    insp.classList.add("show");
+    document.getElementById("insp-name").textContent = labelName;
+    document.getElementById("insp-coord").textContent =
+      `緯度 ${lat.toFixed(5)}°, 經度 ${lng.toFixed(5)}° · 同步最新資料中...`;
+    document.getElementById("val-depth").textContent = "查詢水深與周邊海底坡向中...";
+    setStatus(`更新 ${labelName.split(" / ")[0]} 資料中...`, true);
+
+    selectedDepthInfo = { centerElev: null, deepBearingDeg: null };
+    const instantInterp = interpolateSeriesFromGrid(lat, lng, labelName);
+    if (instantInterp) {
+      selectedPointData = instantInterp;
+      renderInspectorAtHour();
+      renderHabitatZonesOnMap();
+    }
+
+    const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation_probability,precipitation&wind_speed_unit=ms&cell_selection=sea&forecast_days=4&timeformat=unixtime`;
+    const mUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&hourly=wave_height,wave_direction,wave_period,ocean_current_velocity,ocean_current_direction&cell_selection=sea&forecast_days=4&timeformat=unixtime`;
+
+    const [wResult, mResult] = await Promise.allSettled([
+      safeJsonFetch(wUrl),
+      safeJsonFetch(mUrl)
+    ]);
+    if (mySeq !== inspectSeq) return;
+
+    const wData = wResult.status === "fulfilled" ? wResult.value : null;
+    const mData = mResult.status === "fulfilled" ? mResult.value : null;
+
+    if (wData?.hourly?.time) {
+      const times = wData.hourly.time;
+      const nowSec = Math.floor(Date.now() / 1000);
+      let startIdx = 0, bestDiff = Infinity;
+      for (let i = 0; i < times.length; i++) {
+        const diff = Math.abs(times[i] - nowSec);
+        if (diff < bestDiff) { bestDiff = diff; startIdx = i; }
+      }
+      const len = Math.min(73, times.length - startIdx);
+      const currScale = mData?.hourly_units?.ocean_current_velocity === "km/h" ? (1 / 3.6) : 1;
+
+      const hasMarine = mData?.hourly?.wave_height && mData.hourly.wave_height.some(v => v != null);
+      const fallback = interpolateSeriesFromGrid(lat, lng, labelName);
+
+      selectedPointData = {
+        lat, lon: lng, labelName,
+        times: times.slice(startIdx, startIdx + len),
+        windSpd: wData.hourly.wind_speed_10m.slice(startIdx, startIdx + len),
+        windGust: wData.hourly.wind_gusts_10m.slice(startIdx, startIdx + len),
+        windDir: wData.hourly.wind_direction_10m.slice(startIdx, startIdx + len),
+        rainProb: wData.hourly.precipitation_probability.slice(startIdx, startIdx + len),
+        rainMm: wData.hourly.precipitation.slice(startIdx, startIdx + len),
+        waveH: hasMarine ? mData.hourly.wave_height.slice(startIdx, startIdx + len) : (fallback?.waveH || []),
+        waveDir: hasMarine ? mData.hourly.wave_direction.slice(startIdx, startIdx + len) : (fallback?.waveDir || []),
+        wavePer: hasMarine ? mData.hourly.wave_period.slice(startIdx, startIdx + len) : (fallback?.wavePer || []),
+        currSpd: (mData?.hourly?.ocean_current_velocity && hasMarine)
+          ? mData.hourly.ocean_current_velocity.slice(startIdx, startIdx + len).map(v => v == null ? null : v * currScale)
+          : (fallback?.currSpd || []),
+        currDir: (mData?.hourly?.ocean_current_direction && hasMarine)
+          ? mData.hourly.ocean_current_direction.slice(startIdx, startIdx + len)
+          : (fallback?.currDir || [])
+      };
+
+      const nowStr = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+      document.getElementById("insp-coord").textContent =
+        `緯度 ${lat.toFixed(5)}°, 經度 ${lng.toFixed(5)}° · 即時更新 ${nowStr}`;
+      setStatus(`最新更新 ${nowStr}`, false);
+      renderInspectorAtHour();
+      renderHabitatZonesOnMap();
+    } else if (instantInterp) {
+      const nowStr = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+      document.getElementById("insp-coord").textContent =
+        `緯度 ${lat.toFixed(5)}°, 經度 ${lng.toFixed(5)}° · 網格內插 (${nowStr})`;
+      setStatus(`已同步 (網格內插 ${nowStr})`, false);
+    } else {
+      setStatus("請點擊「↻ 更新」重試", false);
+    }
+
+    const probes = [
+      fetchElevationPoint(lat, lng),
+      ...([0, 90, 180, 270].map(deg => {
+        const [pLat, pLon] = offsetLatLon(lat, lng, deg, 550);
+        return fetchElevationPoint(pLat, pLon);
+      }))
+    ];
+    const [cElev, nE, eE, sE, wE] = await Promise.all(probes);
+    if (mySeq !== inspectSeq) return;
+
+    const dirs = [
+      { deg: 0, val: nE }, { deg: 90, val: eE },
+      { deg: 180, val: sE }, { deg: 270, val: wE }
+    ].filter(x => x.val != null);
+
+    let deepTxt = "";
+    if (dirs.length > 0) {
+      dirs.sort((a, b) => a.val - b.val);
+      selectedDepthInfo.deepBearingDeg = dirs[0].deg;
+      deepTxt = ` · 往${dirToText(dirs[0].deg)}側漸深`;
+    }
+    selectedDepthInfo.centerElev = cElev;
+
+    if (cElev != null) {
+      let depthStr;
+      if (cElev < -1) depthStr = `海深約 ${Math.abs(cElev).toFixed(1)} 公尺 (m)`;
+      else if (cElev <= 1) depthStr = `近岸淺水 / 灣內水域 (約 0–3 m)`;
+      else depthStr = `岸際高程約 +${cElev.toFixed(1)} 公尺 (m)`;
+
+      document.getElementById("val-depth").textContent = depthStr + deepTxt;
+      renderHabitatZonesOnMap();
+    } else {
+      document.getElementById("val-depth").textContent = "請切換「深度」圖層查看 GEBCO 水深色階";
+    }
+  }
+
+  function renderInspectorAtHour() {
+    if (!selectedPointData) return;
+    const d = selectedPointData;
+    const i = Math.min(hourIndex, d.times.length - 1);
+
+    document.getElementById("insp-time").textContent = `預報時刻：${formatTime(d.times[i])} (+${i} 小時)`;
+
+    const bft = msToBft(d.windSpd[i]);
+    const gustBft = msToBft(d.windGust[i]);
+    document.getElementById("val-wind").innerHTML =
+      `<span class="bft-pill" style="background:${bft.color};">${bft.level} 級</span>${dirToText(d.windDir[i])}風 (${bft.name})`;
+    document.getElementById("sub-wind").textContent =
+      `${formatSubSpeed(d.windSpd[i])} · 陣風 ${gustBft.level} 級 (${formatSubSpeed(d.windGust[i])})`;
+
+    if (d.currSpd[i] != null) {
+      document.getElementById("val-current").textContent =
+        `往${dirToText(d.currDir[i])} · ${formatMarineSpeed(d.currSpd[i])}`;
+      document.getElementById("sub-current").textContent = `流向角 ${Math.round(d.currDir[i])}°`;
+    } else {
+      document.getElementById("val-current").textContent = "近岸微弱流 / 無流資料";
+      document.getElementById("sub-current").textContent = "--";
+    }
+
+    if (d.waveH[i] != null) {
+      const wSpd = waveSpeedFromPeriod(d.wavePer[i]);
+      document.getElementById("val-wave").textContent =
+        `${dirToText(d.waveDir[i])}浪 · 高 ${d.waveH[i].toFixed(1)} m`;
+      document.getElementById("sub-wave").textContent =
+        `週期 ${d.wavePer[i]?.toFixed(1) ?? "--"} s · 浪速 ${wSpd ? formatMarineSpeed(wSpd) : "--"}`;
+    } else {
+      document.getElementById("val-wave").textContent = "陸地 / 無海浪資料";
+      document.getElementById("sub-wave").textContent = "--";
+    }
+
+    document.getElementById("val-rain").textContent = `降雨機率 ${d.rainProb[i] ?? 0}%`;
+    document.getElementById("sub-rain").textContent = `降雨強度 ${(d.rainMm[i] ?? 0).toFixed(1)} mm/h`;
+
+    // === 即時海況行為推演更新 ===
+    const ev = analyzeCephalopodBehavior(d, i);
+    const sGrade = ev.grade(ev.squidScore);
+    const cGrade = ev.grade(ev.cuttleScore);
+
+    document.getElementById("hab-season-tag").textContent =
+      `${ev.month}月 · ${ev.isTwilight ? "晨昏黃金段" : (ev.isNight ? "夜間覓食段" : "日間躲藏段")}`;
+
+    const waveTag = ev.heavySwell ? `⚠️ 大浪湧 (${ev.waveH.toFixed(1)}m/${ev.wavePer.toFixed(1)}s)` :
+                    ev.moderateWave ? `走浪 (${ev.waveH.toFixed(1)}m)` : `平穩小浪 (${ev.waveH.toFixed(1)}m)`;
+    const currTag = ev.strongCurr ? `強流 ${ev.currKt.toFixed(2)}kt` :
+                    ev.slackCurr ? `停流緩水 ${ev.currKt.toFixed(2)}kt` : `適度流水 ${ev.currKt.toFixed(2)}kt`;
+    document.getElementById("sea-trigger-bar").innerHTML =
+      `<b>海況條件</b>：${waveTag} · ${currTag} · 風 ${ev.bft} 級` +
+      (ev.turbidRain ? ` · <span style="color:#fde047;">降雨濁水風險</span>` : "");
+
+    document.getElementById("hab-squid-info").innerHTML =
+      `🟢 <b>外海基準</b> <span class="score-pill ${sGrade.cls}">${ev.squidScore}分 ${sGrade.txt}</span><br/>` +
+      `<span style="font-size:11.5px; color:#e2e8f0;">${ev.squidAction}</span><br/>` +
+      `<span style="font-size:11px; color:#6ee7b7;">🎯 鎖定水層：${ev.squidDepth}</span>`;
+
+    document.getElementById("hab-cuttle-info").innerHTML =
+      `🟠 <b>花枝基準</b> <span class="score-pill ${cGrade.cls}">${ev.cuttleScore}分 ${cGrade.txt}</span><br/>` +
+      `<span style="font-size:11.5px; color:#e2e8f0;">${ev.cuttleAction}</span><br/>` +
+      `<span style="font-size:11px; color:#fcd34d;">🎯 鎖定水層：${ev.cuttleDepth}</span>`;
+
+    let tactic = "";
+    if (ev.heavySwell || ev.bft >= 6) {
+      tactic = `⚠️ <b>安全與選點策略</b>：此時不適合站立迎浪外礁！請優先點擊下方綠色標記的<b>「避浪庇護區 / 港嘴內側」</b>或利用右側圖層對照避風灣。`;
+    } else if (ev.turbidRain) {
+      tactic = `💧 <b>水色建議</b>：降雨可能降低近岸能見度，餌木建議改用高對比（金底/粉紅/夜光）並加強貼底節奏。`;
+    } else {
+      tactic = `🎣 <b>搜場建議</b>：${ev.isTwilight || ev.isNight ? "光線較暗可搜中上層與潮目邊線" : "白天光線強，讓木蝦下沉至礁腳陰影中下層跳蝦"}。`;
+    }
+    document.getElementById("hab-tactic-hint").innerHTML = tactic;
+
+    // 自動推薦未來 3 天最佳出擊時段
+    const bestWin = findBestWindow72h(d);
+    const bwEl = document.getElementById("best-window-wrap");
+    if (bestWin.bestEv) {
+      bwEl.innerHTML = `<button class="best-win-btn" id="jump-best-btn">✨ 未來3天最佳窗口：${formatTime(d.times[bestWin.bestH])} (風${bestWin.bestEv.bft}級/浪${bestWin.bestEv.waveH.toFixed(1)}m · ${bestWin.bestScore}分) → 點擊預覽</button>`;
+      document.getElementById("jump-best-btn").onclick = () => setHour(bestWin.bestH);
+    }
+
+    // 3 天預報表
+    const tbody = document.getElementById("forecast-tbody");
+    let rowsHtml = "";
+    for (let h = 0; h < d.times.length; h += 3) {
+      const activeCls = Math.abs(h - i) <= 1 ? "active-row" : "";
+      const rowBft = msToBft(d.windSpd[h]);
+      const rowGust = msToBft(d.windGust[h]);
+      const wTxt = `<span style="color:${rowBft.color};font-weight:700;">${rowBft.level}級</span>(陣${rowGust.level}) ${dirToText(d.windDir[h]).slice(0,1)}`;
+      const cVal = d.currSpd[h] != null
+        ? (getSubUnit() === "kt" ? `${(d.currSpd[h]*1.94384).toFixed(1)}kt` : `${d.currSpd[h].toFixed(1)}m/s`)
+        : "--";
+      const cTxt = d.currSpd[h] != null ? `${dirToText(d.currDir[h]).slice(0,1)} ${cVal}` : "--";
+      const wSpd = waveSpeedFromPeriod(d.wavePer[h]);
+      const wvSpdTxt = wSpd
+        ? (getSubUnit() === "kt" ? `${(wSpd*1.94384).toFixed(0)}kt` : `${wSpd.toFixed(0)}m/s`)
+        : "--";
+      const wvTxt = d.waveH[h] != null ? `${d.waveH[h].toFixed(1)}m/${wvSpdTxt}` : "--";
+      const rTxt = `${d.rainProb[h] ?? 0}%/${(d.rainMm[h] ?? 0).toFixed(1)}`;
+      const evRow = analyzeCephalopodBehavior(d, h);
+      const sg = evRow.grade(evRow.squidScore).short, cg = evRow.grade(evRow.cuttleScore).short;
+
+      rowsHtml += `<tr class="${activeCls}" data-h="${h}">
+        <td>${formatTime(d.times[h])}</td>
+        <td>${wTxt}</td><td>${cTxt}</td><td>${wvTxt}</td><td>${rTxt}</td>
+        <td><span style="color:#6ee7b7">${sg}</span>/<span style="color:#fcd34d">${cg}</span></td>
+      </tr>`;
+    }
+    tbody.innerHTML = rowsHtml;
+    tbody.querySelectorAll("tr").forEach(tr => {
+      tr.onclick = () => setHour(parseInt(tr.dataset.h, 10));
+    });
+  }
+
+  function selectPresetSpot(idx) {
+    currentSpotIdx = idx;
+    const spot = NORTH_SPOTS[idx];
+    document.getElementById("spot-select").value = String(idx);
+    renderSpotPins();
+    map.setView([spot.lat, spot.lon], 13, { animate: true });
+    inspectPoint(spot.lat, spot.lon, spot.name);
+    fetchGridData(false);
+  }
+
+  // === 11. 介面控制 ===
+  function updateTimeLabel() {
+    if (!gridMeta) return;
+    const t = gridMeta.times[hourIndex];
+    const dayTag = hourIndex < 24 ? "今天/24h內" : hourIndex < 48 ? "1～2天後" : "2～3天後";
+    document.getElementById("time-display").textContent = `${formatTime(t)} (${dayTag})`;
+    document.getElementById("offset-display").textContent = `+${hourIndex} 小時`;
+  }
+
+  function setHour(h) {
+    hourIndex = Math.max(0, Math.min(maxHours, h));
+    document.getElementById("time-slider").value = hourIndex;
+    updateTimeLabel();
+    drawStaticField();
+    renderInspectorAtHour();
+    renderHabitatZonesOnMap();
+  }
+
+  document.getElementById("spot-select").addEventListener("change", (e) => {
+    selectPresetSpot(parseInt(e.target.value, 10));
+  });
+
+  document.getElementById("basemap-select").addEventListener("change", (e) => {
+    activeBasemapKey = e.target.value;
+    switchBasemap(activeBasemapKey);
+    drawStaticField();
+    renderHabitatZonesOnMap();
+  });
+
+  document.getElementById("seethrough-toggle").addEventListener("click", (e) => {
+    seeThroughMode = !seeThroughMode;
+    e.target.textContent = seeThroughMode ? "👁️ 衛星透視：純粒子" : "👁️ 衛星透視：含色塊";
+    e.target.classList.toggle("active-blue", seeThroughMode);
+    drawStaticField();
+  });
+
+  document.getElementById("time-slider").addEventListener("input", (e) => {
+    setHour(parseInt(e.target.value, 10));
+  });
+
+  document.getElementById("play-btn").addEventListener("click", () => {
+    isPlaying = !isPlaying;
+    document.getElementById("play-btn").textContent = isPlaying ? "⏸" : "▶";
+    if (isPlaying) {
+      playTimer = setInterval(() => setHour(hourIndex >= maxHours ? 0 : hourIndex + 1), 650);
+    } else {
+      clearInterval(playTimer);
+    }
+  });
+
+  document.getElementById("habitat-toggle").addEventListener("click", (e) => {
+    showHabitats = !showHabitats;
+    e.target.textContent = showHabitats ? "🦑 躲藏預測：開" : "🦑 躲藏預測：關";
+    e.target.classList.toggle("active-toggle", showHabitats);
+    renderHabitatZonesOnMap();
+  });
+
+  document.querySelectorAll(".layer-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".layer-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      activeLayer = btn.dataset.layer;
+      switchBasemap(activeBasemapKey);
+      updateLegend();
+      drawStaticField();
+    });
+  });
+
+  document.getElementById("unit-toggle").addEventListener("click", () => {
+    unitIdx = (unitIdx + 1) % UNIT_MODES.length;
+    const labels = { kt: "節 (kt)", ms: "m/s", kmh: "km/h" };
+    document.getElementById("unit-toggle").textContent = `副單位：${labels[getSubUnit()]}`;
+    updateLegend();
+    renderInspectorAtHour();
+    renderHabitatZonesOnMap();
+  });
+
+  document.getElementById("unit-help-btn").addEventListener("click", () => {
+    document.getElementById("unit-modal").classList.toggle("show");
+  });
+  document.getElementById("unit-modal-close").addEventListener("click", () => {
+    document.getElementById("unit-modal").classList.remove("show");
+  });
+
+  document.getElementById("zoom-reef-btn").addEventListener("click", () => {
+    if (selectedPointData) {
+      map.setView([selectedPointData.lat, selectedPointData.lon], 16, { animate: true });
+    }
+  });
+
+  document.getElementById("refresh-btn").addEventListener("click", async () => {
+    await fetchGridData(true);
+    if (selectedPointData) {
+      inspectPoint(selectedPointData.lat, selectedPointData.lon, selectedPointData.labelName);
+    }
+  });
+
+  document.getElementById("insp-close").addEventListener("click", () => {
+    document.getElementById("inspector").classList.remove("show");
+  });
+
+  let moveDebounce = null;
+  map.on("move", () => drawStaticField());
+  map.on("zoomend", () => {
+    document.getElementById("zoom-readout").textContent = `衛星縮放等級：Z${map.getZoom()} (最大支援 Z20)`;
+  });
+  map.on("moveend", () => {
+    clearTimeout(moveDebounce);
+    moveDebounce = setTimeout(() => fetchGridData(false), 400);
+  });
+  map.on("click", (e) => {
+    currentSpotIdx = -1;
+    renderSpotPins();
+    inspectPoint(e.latlng.lat, e.latlng.lng, "自選海域點位");
+  });
+
+  // 啟動
+  updateLegend();
+  initParticles();
+  renderSpotPins();
+  (async () => {
+    await fetchGridData(true);
+    selectPresetSpot(6);
+  })();
+  animate();
+})();
+</script>
+</body>
+</html>
